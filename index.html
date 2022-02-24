@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+</head>
+<body>
+  <style>
+    [mx-cloak] {
+      display: none;
+    }
+  </style>
+  <div id="app" mx-cloak>
+    
+    <input type="text" mx-model="toAdd" placeholder="Value to add">
+    <div>{{ toAdd }}</div>
+    <div>{{counter}}</div>
+    
+    <button mx-text="`Add-${toAdd} to the counter`" mx-on:click="increment">+</button>
+    <div mx-html="`<b>${counter}</b>`"></div>
+    <div mx-show="counter % 2">Visible on odd</div>
+    <div mx-if="counter % 2">Exists on odd</div>
+    <div mx-bind:style="{background: counter % 2 ? 'red' : 'yellow', border: `${counter * 2}px solid #eee`}" style="outline: 2px solid blue;">Test bind</div>
+    <div mx-bind:hidden="counter % 2">Hidden?</div>
+    <ul>
+      <li mx-repeat="i in counter">
+        {{ i }}
+      </li>
+    </ul>
+    <button mx-on:click="increment">+</button>
+    <div mx-bind:class="{first: counter % 2, second: counter % 2 === 0, third: true}" class="always">bind class</div>
+  </div>
+  <script src="classnames.js"></script>
+  <script src="script.js"></script>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
