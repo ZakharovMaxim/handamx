@@ -20,7 +20,7 @@ function baseClassnames () {
   }
   return classes
 }
-function classnames (...args) {
+export default function classnames (...args) {
   return baseClassnames(...args).join(' ').trim()
 }
 function bind (ctx) {

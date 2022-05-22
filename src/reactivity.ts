@@ -1,8 +1,7 @@
-const targetMap = new WeakMap();
-export type activeEffect = Function & {
-  deps?: Set<Map<Object, Array<any>>>
-} | null
-let activeEffect: activeEffect;
+import { isObject } from './utils'
+const targetMap = new WeakMap<object, DepsMap>();
+let activeEffect: ActiveEffect;
+
 
 export function effect(eff: Function) {
   activeEffect = eff;
@@ -10,8 +9,8 @@ export function effect(eff: Function) {
   activeEffect = null;
   return eff
 }
-export function cleanup (effect: activeEffect) {
-  if (!effect || !effect.deps) {
+export function cleanup (effect: ActiveEffect) {
+  if (!effect?.deps) {
     return
   }
   effect.deps.forEach(dep => {
@@ -19,7 +18,7 @@ export function cleanup (effect: activeEffect) {
   })
   effect.deps.clear()
 }
-export function track(target: Object, property: string) {
+export function track(target: Object, property: Property) {
   if (!activeEffect) {
     return;
   }
@@ -37,52 +36,59 @@ export function track(target: Object, property: string) {
   }
   activeEffect.deps.add(deps)
 }
-export function trigger(target: Object, property: string) {
+export function trigger(target: Object, property: Property, {oldValue, newValue}) {
   const deps = targetMap.get(target)?.get(property);
   if (!deps) {
     return;
   }
-  deps.forEach((dep: Function) => dep());
+  deps.forEach((dep: Function) => dep(newValue, oldValue));
 }
-
 export function reactive(obj: Object) {
   return new Proxy(obj, {
     get(target, property, receiver) {
       let result = Reflect.get(target, property, receiver);
-      track(target, property);
+      if(target.hasOwnProperty(property)) {
+        track(target, property);
+      }
       return result;
     },
     set(target, property, value, receiver) {
-      const oldValue = Reflect.get(target, property, receiver);
-      const newValue = Reflect.set(target, property, value, receiver);
-      if (oldValue !== newValue) {
-        trigger(target, property);
+      if (target.hasOwnProperty(property)) {
+        const oldValue = Reflect.get(target, property, receiver);
+        Reflect.set(target, property, value, receiver);
+        if (oldValue !== value) {
+          trigger(target, property, {oldValue, newValue: value});
+        }
+      } else {
+        Reflect.set(target, property, value, receiver);
       }
-      return newValue;
+      return true;
     },
   });
 }
 
-export function ref(initialValue?: any) {
-  if (initialValue && typeof initialValue === "object") {
-    throw new Error("Ref value should be a primitive");
-  }
-  const r = {
-    get value() {
-      track(r, "value");
-      return initialValue;
-    },
-    set value(v) {
-      initialValue = v;
-      trigger(r, "value");
-    },
-  };
-  return r;
-}
-export function computed (getter: Function) {
-  const result = ref()
+export function computed (ctx, key, getter: Function) {
   effect(() => {
-    result.value = getter()
+    ctx[key] = getter.bind(ctx)()
   })
-  return result
+  return ctx[key]
+}
+
+export const watch = (ctx, object) => {
+  for(const prop in object) {
+    let method = object[prop]
+    if (isObject(object[prop])) {
+      method = object[prop].handler
+    }
+    if (!method) {
+      continue;
+    }
+    const bound = method.bind(ctx);
+    activeEffect = bound
+    track(ctx, prop)
+    activeEffect = null
+    if (isObject(object[prop]) && object[prop].immediate) {
+      bound(ctx[prop])
+    }
+  }
 }
