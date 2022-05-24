@@ -1,11 +1,19 @@
-import { internal, evaluate, attrsTransform } from './utils'
+import { internal, evaluate, attrsTransform, getCurrentContext, parseForAttr, createTempContext } from './utils'
 import { effect } from './reactivity'
 import { mount, unmount } from './dom'
+import { ATTR_KEY, IS_CLONED_KEY } from './consts'
 
+const createArrayEntries = (length) => {
+  if (length) {
+    return new Array(length).fill(1).map((_v, i) => [i, i + 1])
+  }
+  return []
+}
 const customAttributes = {
   'mx-on': {
-    preprocess (_el, value, { context }) {
+    preprocess (_el, value, { contexts }) {
       let fn = value;
+      const context = getCurrentContext(contexts)
       if (typeof context[value] !== 'function') {
         if (value.startsWith('function') || value.indexOf('=>') !== -1) {
           fn = value
@@ -15,7 +23,8 @@ const customAttributes = {
       }
       return fn
     },
-    bind (el, value, { event, context, modifiers }) {
+    bind (el, value, { event, contexts, modifiers }) {
+      const context = getCurrentContext(contexts)
       let rawMethod = typeof context[value] === 'function' ? context[value] : value
       if (typeof rawMethod !== 'function') {
         return
@@ -31,12 +40,16 @@ const customAttributes = {
         options.passive = true
       }
       rawMethod = rawMethod.bind(context)
-      const method = modifiers.includes('stop') || modifiers.includes('prevent') ? function eventHandler (ev) {
+      const hasEventModifiers = ['stop', 'prevent', 'self'].some(mod => modifiers.includes(mod))
+      const method = hasEventModifiers ? function eventHandler (ev) {
         if (modifiers.includes('stop')) {
           ev.stopPropagation()
         }
         if (modifiers.includes('prevent')) {
           ev.preventDefault()
+        }
+        if (modifiers.includes('self') && ev.target !== el) {
+          return
         }
         rawMethod(ev)
       } : rawMethod
@@ -82,11 +95,11 @@ const customAttributes = {
       } else if (attrToBindName === 'class') {
         el.className = value
       } else {
+        const attrValue = attrsTransform(value)
         if (attrToBindName === 'value') {
           value = String(value)
-        }
-        const attrValue = attrsTransform(value)
-        if (attrValue === false) {
+          el.value = value
+        } else if (attrValue === false) {
           el.removeAttribute(attrToBindName)
         } else {
           el.setAttribute(attrToBindName, attrValue)
@@ -96,48 +109,73 @@ const customAttributes = {
     }
   },
   'mx-if': {
-    bind (el, value, { context }) {
+    bind (el, value, { contexts }) {
+      const context = getCurrentContext(contexts)
       if (value) {
-        mount(el, {context, globalContext:context.$global, isMount: true})
+        mount(el, {contexts, globalContext:context.$global, isMount: true})
       } else {
-        unmount(el, {isMount: true})
+        unmount(el)
       }
     }
   },
   'mx-for': {
     preprocess (_el, defaultValue) {
-      console.log('here')
-      return defaultValue.split('in')[1]?.trim()
+      return parseForAttr(defaultValue).value
     },
-    bind (el, value, options) {
+    bind (el, value, { contexts, attr }) {
       const iterator = typeof value === 'number'
-        ? new Array(value).fill(1).map((_v, i) => i)
-        : Array.isArray(value)
-          ? value
-          : Object.values(value)
-      for(let i = 1; i < iterator.length; i++) {
-        const cloned = el.cloneNode(true)
-        cloned.removeAttribute('mx-for')
-        el.after(cloned)
-        mount(cloned, {context: options.context, globalContext: options.context.$global})
-        cloned.isCloned = true
+      ? createArrayEntries(value)
+      : Array.isArray(value) ? value.map((val, key) => [key, val])
+      : value
+      if (!el.internal?.comment) {
+        const comment = document.createComment('v-for')
+        el.before(comment)
+        el.internal = {
+          ...el.internal,
+          comment
+        }
       }
-      console.log(iterator, value, options)
-      // if (value) {
-      //   mount(el, {context, globalContext:context.$global, isMount: true})
-      // } else {
-      //   unmount(el, {isMount: true})
-      // }
+      const context = getCurrentContext(contexts)
+      let lastElementInTheList = el.internal.comment
+      let prevClonedElement = el.internal.comment.nextSibling
+      while(prevClonedElement?.[IS_CLONED_KEY] || prevClonedElement === el) {
+        const { nextSibling } = prevClonedElement
+        unmount(prevClonedElement)
+        prevClonedElement = nextSibling
+      }
+      const {valueKey, iteratorKey} = parseForAttr(attr.value)
+      for(let i = 0; i < iterator.length; i++) {
+        const cloned = el.cloneNode(true)
+        const attributes = [...cloned.attributes]
+        for(const attr of attributes) {
+          cloned.removeAttribute(attr.name)
+        }
+        cloned[ATTR_KEY] = el[ATTR_KEY].filter(attr => attr.name !== 'mx-for')
+        lastElementInTheList.after(cloned)
+        const newContext = createTempContext()
+        if (valueKey) {
+          newContext[valueKey] = iterator[i][1]
+        }
+        if (iteratorKey) {
+          newContext[iteratorKey] = iterator[i][0]
+        }
+        mount(cloned, {contexts: [newContext, ...contexts], globalContext: context.$global})
+        cloned[IS_CLONED_KEY] = true
+        lastElementInTheList = cloned
+      }
+      unmount(el)
     }
   },
   'mx-ref': {
     skipEvaluating: true,
-    bind (el, value, { context }) {
+    bind (el, value, { contexts }) {
+      const context = getCurrentContext(contexts)
       if (!context.$refs[value]) {
         context.$refs[value] = el
       }
     },
-    unbind (_el, value, { context }) {
+    unbind (_el, value, { contexts }) {
+      const context = getCurrentContext(contexts)
       if (context.$refs[value]) {
         delete context.$refs[value]
       }
@@ -148,26 +186,26 @@ const customAttributes = {
 const directives = {}
 function directive (schema) {
   return {
-    bind (el, context, options) {
-      const { attr, event, modifiers} = options
+    bind (el, options) {
+      const { attr, event, modifiers, contexts} = options
+      let effectResult;
       if (schema.bind) {
-        const schemaOptions = {context, attr, event, modifiers}
+        const schemaOptions = {contexts, attr, event, modifiers}
         const value = schema.preprocess ? schema.preprocess(el, attr.value, schemaOptions) : attr.value
         if (schema.skipEvaluating) {
-          schema.bind(el, value, schemaOptions)
+          effectResult = schema.bind(el, value, schemaOptions)
         } else {
           const currentEffect = effect(() => {
-            let res = value;
-            let contexts = Array.isArray(context) ? context : [context]
-            for(let ctx of contexts) {
-              res = evaluate(res, ctx, el)
-            }
-            
-            schema.bind(el, res, schemaOptions)
+
+            const evaluationResult = evaluate(value, contexts, el)
+            effectResult = schema.bind(el, evaluationResult, schemaOptions)
           })
-          internal.addElementEffect(el, currentEffect)
+          if (options.saveEffect) {
+            internal.addElementEffect(el, currentEffect)
+          }
         }
       }
+      return effectResult
     }
   }
 }

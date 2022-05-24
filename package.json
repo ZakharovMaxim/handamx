@@ -13,5 +13,6 @@
     "vite": "^2.8.0"
   },
   "author": "Zakharov Maksym",
-  "license": "ISC"
+  "license": "ISC",
+  "dependencies": {}
 }

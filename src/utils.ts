@@ -1,4 +1,5 @@
 import { cleanup } from './reactivity'
+import { ATTR_KEY, IS_TEMP_KEY } from './consts'
 
 export const internal = {
   elementEffects : new WeakMap(),
@@ -18,22 +19,31 @@ export const internal = {
     elementEffectsSet.add(el, effect)
   }
 }
-export const ATTR_KEY = Symbol.for('attributes');
-function getEvalFn (expression: string) {
-  return new Function(
-    "$data",
-    "$el",
-    `with($data) {
-      return ${expression}
-    }`)
+
+function getEvalFn (context, expression: string) {
+  let fnString = ''
+  const contexts = Array.isArray(context) ? context : [context]
+  const returnString = `return ${expression}`
+  for(let i = 0; i < contexts.length; i++) {
+    fnString += `with(contexts[${i}]) {\n`
+    if (i === contexts.length - 1) {
+      fnString += `
+        ${returnString}
+        ${'}'.repeat(context.length)}
+      `
+    }
+  }
+  return new Function("$data", "$el", `
+    const contexts = Array.isArray($data) ? $data : [$data];
+    ${fnString}
+  `)
 }
 
-export function evaluate(expression: string, context: Object, el: HTMLElement) {
+export function evaluate(expression: string, context: Object | Object[], el: HTMLElement) {
   try {
-    const fn = getEvalFn(expression);
+    const fn = getEvalFn(context, expression);
     return fn(context, el);
   } catch (e) {
-    console.warn(e)
     return expression;
   }
 }
@@ -64,12 +74,12 @@ export function findTemplateStrings (el, onEntry) {
     }
 }
 
-export function copyCustomAttributes (el, attributes) {
+export function copyAttributes (el, attributes) {
   for(const attribute of attributes) {
     if (attribute.name.startsWith('mx-')) {
       el.removeAttribute?.(attribute.name)
-      el[ATTR_KEY].push(attribute)
     }
+    el[ATTR_KEY].push(attribute)
   }
 }
 
@@ -83,4 +93,28 @@ export function parseAttributeName (attr): ParsedAttribute {
     attributeNameModifiers = splittedByModifiers.slice(1)
   }
   return [splittedByName[0], attributeNameValue, attributeNameModifiers]
+}
+
+export function createTempContext (payload = {}) {
+  return {
+    ...payload,
+    [IS_TEMP_KEY]: true
+  }
+}
+export function getCurrentContext (contexts) {
+  return contexts.find(ctx => !ctx[IS_TEMP_KEY])
+}
+
+export function parseForAttr (attrValue) {
+  const trimFn = v => v.trim()
+  const parts = attrValue.split(' in ').map(trimFn)
+  const args = parts[0]
+  const value = parts[1]
+  const splittedArgs = args.split(',').map(trimFn)
+  return {
+    value,
+    args,
+    valueKey: splittedArgs[0],
+    iteratorKey: splittedArgs[1]
+  }
 }

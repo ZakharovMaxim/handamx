@@ -28,49 +28,19 @@ export function createScope(options:Schema) {
   scope.$refs = {}
   return scope
 }
-export const scopes = {
-  inner: {
-    state: () => ({
-      counter: 1,
-      toAdd: 2
-    }),
-    methods: {
-      increment(this: any) {
-        this.counter += +this.toAdd || 1;
-      }
-    },
-  }
+const scopes = {}
+export function getScopes () {
+  return scopes
+}
+export function addScope (name, schema) {
+  scopes[name] = schema
+  return scopes
 }
 export default function createApp(el, options: Schema) {
   const scope = createScope(options)
   mount(el, {
-    context: scope,
+    contexts: [scope],
     globalContext: scope
   });
   return scope
 }
-
-// app usage
-
-const state = {
-  counter: 10,
-  i: 0,
-  toAdd: 1,
-  styles: {
-    border: '2px solid red'
-  },
-  
-}
-createApp(document.getElementById("app"), {
-  state,
-  methods: {
-    increment(this: any) {
-      this.counter += +this.toAdd || 1;
-    }
-  },
-  computed: {
-    counterX2 (this: any) {
-      return this.counter * 2
-    }
-  }
-});

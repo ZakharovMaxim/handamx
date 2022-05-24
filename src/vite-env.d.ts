@@ -9,7 +9,7 @@ type Ref = {
   value: any
 }
 type UnmountOptions = {keepNode?: Boolean, isMount?: Boolean }
-type MountOptions = UnmountOptions & {context: any, globalContext: any}
+type MountOptions = UnmountOptions & {contexts: any[], globalContext: any}
 
 type Schema = {
   state?: object,
