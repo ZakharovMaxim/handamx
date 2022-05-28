@@ -14,15 +14,15 @@
     }
   </style>
   <div id="app" mx-cloak>
-    <div id="myDIV" class="header">
+    <header class="header">
       <h2 style="margin:5px">My To Do List</h2>
       <form mx-on:submit.prevent="add">
         <input mx-model="newTodoItemTitle" type="text" placeholder="Title...">
         <button class="addBtn" type="submit">Add</button>
       </form>
-    </div>
+    </header>
     
-    <ul id="myUL">
+    <ul>
       <li mx-for="item, index in items" mx-bind:class="{checked: item.checked}" mx-on:click="toggleCheckStatus(item)">
         <span mx-text="item.title + '_' + index"></span>
         <span mx-on:click.stop="setItemToDelete(item)">x</span>

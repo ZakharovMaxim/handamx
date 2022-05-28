@@ -18,7 +18,7 @@ const customAttributes = {
         if (value.startsWith('function') || value.indexOf('=>') !== -1) {
           fn = value
         } else {
-          fn = `function binded (...attrs) {${value}}`
+          fn = `function binded ($event) {${value}}`
         }
       }
       return fn
